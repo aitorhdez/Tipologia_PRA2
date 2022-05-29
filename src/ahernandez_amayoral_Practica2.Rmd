@@ -1,0 +1,421 @@
+---
+title: "Pràctica 2"
+author: "Aitor Hernández i Anna Mayoral"
+date: "Juny 2022"
+output:
+  pdf_document: default
+  word_document: default
+  html_document:
+    df_print: paged
+---
+
+******
+# 1. Descripció del dataset.
+******
+
+Per la realització d'aquesta pràctica, treballarem amb el dataset Titanic: Machine Learning from Disaster (https://www.kaggle.com/c/titanic ).
+
+El dataset conté un registre per cada passatger que viatjava en el Titanic el dia del seu enfonsament. L'estudi és important de cara a determinar quina afectació van tenir els factors socio-econòmics dels passatgers en la seva supervivència en el malaurat accident.
+
+Les dades s'han dividit en dos grups:
+
+- conjunt d'entrenament (train.csv)
+- conjunt de prova (test.csv)
+
+Per la realització d'aquesta pràctica només treballarem amb el dataset train.csv ja que és el que conté la variable de Survived, que ens indica si el passatger en qüestió va sobreviure o no a l'accident.
+
+## 1.1 Revisió de les dades, extracció visual d'informació i preparació de les dades
+
+Inicialitzarem les llibreries que utilitzarem durant la realització de la pràctica
+```{r}
+library(ggplot2)
+library(nortest)
+library(corrplot)
+library(rpart)
+library(rpart.plot)
+library(caret)
+library(caret)
+```
+
+El primer que realitzarem és la càrrega de les dades:
+
+```{r}
+# Lectura de les dades
+data_titanic<-read.csv("./train.csv",stringsAsFactors = FALSE,header=T,sep=",")
+
+```
+
+Farem una visualització de les primeres files per comprovar que les dades s'han carregat correctament:
+
+```{r}
+# Visualització primeres files
+head (data_titanic)
+```
+
+Efectivament les dades s'han carregat correctament.
+
+Començarem fent una breu anàlisi de les dades ja que ens interessa tenir una idea general de les dades que disposem. i verifiquem l'estructura del joc de dades principal. 
+
+```{r}
+structure = str(data_titanic)
+```
+
+Veiem que tenim **12** variables i **891** registres
+
+Revisem la descripció de les variables contingudes al fitxer i els tipus de variables carregades. Les organitzem lògicament per donar-los sentit i construïm un petit diccionari de dades utilitzant la documentació auxiliar.
+
++ **PassengerId**  identificador únic del passatger.
+
+**FETS A ESTUDIAR**
+
++ **Survived** és la variable objectiu del nostre anàlisis. Indica la supervivència o no a l'accident (0 = No, 1 = Si).
++ **Pclass** indica la clase en la que viatjava el passatger (1 = 1st, 2 = 2nd, 3 = 3rd).
++ **Name** nom del passatger. 
++ **Sex** gènere dels passatger.
++ **Age** edat del passatger (observem números decimals, que farà referencia als mesos).
++ **SibSp** nombre de germans/cònjuges a bord del Titanic.
++ **Parch** nombre de pares/fills a bord del Titanic.
++ **Ticket** identificador del ticket.
++ **Fare** preu del ticket.
++ **Cabin** número del camarot.
++ **Embarked** Port d'embarcament del passatger. (C = Cherbourg, Q = Queenstown, S = Southampton)
+
+******
+# 2. Integració i selecció de les dades d’interès a analitzar.
+******
+
+La gran majoria d'atributs presents en el conjunt de dades son necessaris per la realització de l'anàlisis ja que ens aporten informació de les característiques que tenien les persones que van sobreviure a l'accident del titanic i les que no van sobreviure. Tot i això podem excloure de l'anàlisis els camps Name, Ticket i Cabin que no ens aportaran informació de valor per l'anàlisis.
+
+```{r}
+# Eliminem les columnes Name, Ticket i Cabin
+data_titanic <- data_titanic[, -c(4,9, 11 )]
+
+```
+
+També convertirem els atributs categòrics a factors
+
+```{r}
+# Convertim les variables categòriques a factor
+data_titanic$Survived <- as.factor(data_titanic$Survived)
+data_titanic$Pclass <- as.factor(data_titanic$Pclass)
+data_titanic$Sex <- as.factor(data_titanic$Sex)
+data_titanic$Embarked <- as.factor(data_titanic$Embarked)
+```
+
+Revisem la trasnformació així com l'eliminació de les variables (Name, Ticket i Cabin)
+
+```{r}
+structure = str(data_titanic)
+```
+Veiem que ara tenim **9** variables i **891** registres
+
+******
+# 3. Neteja de les dades.
+******
+
+En aquesta apartat començarem el processament de les dades per tal d'aconseguir un dataset preparat per inicialitzar l'anàlisis. És de gran interès saber si tenim molts valors nuls (camps buits) i la distribució de valors per variables.
+
+El primer que farem serà estudiar els valors nulls o buits i posteriorment analitzarem els valors extrems d'algunes variables.
+
+## 3.1 Anàlisis valors buits
+
+Mostrarem per a cada atribut la quantitat de valors perduts mitjançant la funció summary. 
+
+```{r}
+# Observem alhora si hi ha valors na o buits al dataset
+as.list(colSums(is.na(data_titanic) | data_titanic == ""))
+```
+Observem fàcilment que hi ha valors missing i, per tant, haurem de preparar les dades en aquest sentit. El camps amb valors perduts son Age (n=177) i Embarked (n=2).
+
+Per tal de completar les dades farem servir dos mètodes diferents:
+
+Per els valors na de la categoria edat, assignarem la mitjana de les edats:
+
+```{r}
+# substituim els valors que falten per la mitjana de "Edat"
+data_titanic[is.na(data_titanic$Age)==TRUE, "Age"] <- mean(data_titanic$Age, na.rm = TRUE)
+
+# Comprovem com ara no hi han valors na
+table(is.na(data_titanic$Age))
+```
+Pel que fa a la variable "Embarked" farem un anàlisis de freqüència per conèixer si podem pre assignar un port, sinó podem, haurem d'eliminar les dues files.
+
+Com no volem eliminar dades, completarem aquests dos registres amb la moda estadística de la variable.
+
+```{r}
+# Taula de freqüències de la variable Embarked
+table(data_titanic$Embarked)
+```
+Com son únicament dos valors, podem assumir que el port és S (Southampton), que és la variable més freqüent.
+
+
+```{r}
+# Reemplacem els valors buits per S (Southampton)
+data_titanic[data_titanic$Embarked=='', "Embarked"] <- 'S'
+
+# Taula de freqüències de la variable Embarked
+table(data_titanic$Embarked)
+```
+Efectivament, ara ja no tenim valors buits en la variable Embarked.
+
+```{r}
+missing <- data_titanic[is.na(data_titanic),]
+dim(missing)
+```
+
+Disposem per tant d'un data frame format per 9 variables sense valors nuls. 
+
+## 3.2 Identifica i gestiona els valors extrems.
+
+Per identificar valors extrems, primer farem un resum estadístic de les variables amb la funció summary
+
+```{r}
+summary(data_titanic)
+```
+
+La variable Fare, crida l'atenció el valor màxim i per tant farem una visualització gràfica mitjançant un diagrama de caixes.
+
+```{r}
+# Diagrama de caixa Fare
+boxplot(data_titanic$Fare, main = "Fare")
+```
+Tal i com podem observar molt visualment, efectivament existeixen valors molt alts en la variable Fare tot i així podrien ser paquets luxosos del vaixells, per tant el que mirarem és de si es tracta d'un únic valor o quina proporció correspon. Agafem els valors majors al tercer quartil
+
+```{r}
+length(data_titanic$Fare[data_titanic$Fare > 31])
+```
+
+Com son forces valors, entenem que aquests preus corresponent a paquets luxosos del vaixell i per tant la dada es considera correcte.
+
+******
+# 4. Anàlisi de les dades.
+******
+
+Per tenir un major coneixement de les dades, utilitzarem les eines de visualització per començar a a veure relacions entre les variables del dataset.
+
+## 4.1 Selecció dels grups de dades que es volen analitzar/comparar
+
+Com que el que ens interessa és descriure la relació entre la supervivència en l'accident i les variables realitzarem una sèrie de diagrames de barres i de taules de contingència que ens proporcionaran molta informació.
+
+Per a això, d'una banda graficarem mitjançant diagrames de barres la quantitat de morts i supervivents segons la classe en la qual viatjaven, l'edat o el sexe. D'altra banda, per a obtenir les dades que estem graficant utilitzarem la comanda table per a les dues variables que ens proporciona una taula de contingència.
+
+El primer que analitzarem és quanta gent va sobreviure
+
+```{r}
+# Discretitzem variable Survived i crearem una nova Supervivència
+data_titanic["Supervivencia"] <- factor(ifelse(data_titanic$Survived == 0 , "No_Survived", "Survived"))
+
+# Analitzem graficament el número de persones que van o no sobreviure
+ggplot(data_titanic, aes(x = Supervivencia)) +
+    geom_bar(width = 0.5, fill = "#008000", color = "#000000") +
+    geom_text(stat = "count", aes(label = stat(count)), vjust = 10) +
+    labs(x="Survived", y="Passengers")
+```
+En aquest gràfic podem observar com 549 persones NO van sobreviure mentre que 342 van sobreviure a l'accident del Titanic.
+
+```{r}
+
+# Discretitzem la variable age i creem una nova variable discreta edat
+data_titanic["edat"] <- cut(data_titanic$Age, breaks = c(0, 20,30,40,50,60,70,80,100), labels = c("0-20", "21-30", "31-40", "41-50", "51-60", "61-70", "71-80", "+80" ))
+
+```
+
+
+
+```{r}
+
+Conf3x3 = matrix(c(1:9), nrow=3, byrow=TRUE)
+layout(Conf3x3)
+
+# Supervivència per classe
+ggplot(data_titanic,aes(Pclass,fill=Supervivencia))+geom_bar() +labs(x="Class", y="Passengers")+ guides(fill=guide_legend(title=""))+ scale_fill_manual(values=c("black","#008000"))+ggtitle("Survived by Class")
+
+# Supervivència per edat
+ggplot(data_titanic,aes(edat,fill=Supervivencia))+geom_bar() +labs(x="Age", y="Passengers")+ guides(fill=guide_legend(title=""))+ scale_fill_manual(values=c("black","#008000"))+ggtitle("Survived by Age")
+
+# Supervivència per gènere
+ggplot(data_titanic,aes(Sex,fill=Supervivencia))+geom_bar() +labs(x="Sex", y="Passengers")+ guides(fill=guide_legend(title=""))+ scale_fill_manual(values=c("black","#008000"))+ggtitle("Survived by Sex")
+
+# Supervivència per unitat familiar
+ggplot(data_titanic,aes(SibSp,fill=Supervivencia))+geom_bar() +labs(x="Simblings", y="Passengers")+ guides(fill=guide_legend(title=""))+ scale_fill_manual(values=c("black","#008000"))+ggtitle("Survived by Simblings")
+
+# Supervivència per unitat familiar
+ggplot(data_titanic,aes(Parch,fill=Supervivencia))+geom_bar() +labs(x="Parch", y="Passengers")+ guides(fill=guide_legend(title=""))+ scale_fill_manual(values=c("black","#008000"))+ggtitle("Survived by Parch")
+
+# Supervivència per Fare
+ggplot(data_titanic,aes(Fare,fill=Supervivencia))+geom_bar() +labs(x="Fare", y="Passengers")+ guides(fill=guide_legend(title=""))+ scale_fill_manual(values=c("black","#008000"))+ggtitle("Survived by Fare")
+
+# Supervivència per Embarked
+ggplot(data_titanic,aes(Embarked,fill=Supervivencia))+geom_bar() +labs(x="Embarked", y="Passengers")+ guides(fill=guide_legend(title=""))+ scale_fill_manual(values=c("black","#008000"))+ggtitle("Survived by Embarked")
+
+```
+
+A continuació treballarem amb taules contingència per enriquir l'anàlisis
+
+```{r}
+tabla_SST <- table(data_titanic$Sex, data_titanic$Supervivencia)
+tabla_SST
+prop.table(tabla_SST, margin = 1)
+```
+D'aquests gràfics obtenim informació molt valuosa que complementem amb les taules de contingència. Per exemple si tenim en compte el percentatge de supervivència respecte al seu sexe observem com la taxa de mort en homes és molt major (el 81,1% dels homes van morir mentre que en dones aquest percentatge baixa a 25,8%). 
+
+```{r}
+tabla_SCT <- table(data_titanic$Pclass,data_titanic$Supervivencia)
+tabla_SCT
+prop.table(tabla_SCT, margin = 1)
+```
+
+Referent a la classe en la qual viatjaven, els passatgers que viatjaven en primera classe van ser els únics que el percentatge de supervivència era major que el de mortalitat. El 62,96% dels viatgers de primera classe va sobreviure, el 47,2% dels quals viatjaven en segona classe mentre que dels viatgers de tercera només van sobreviure un 24,23%. 
+
+```{r}
+tabla_SAT <- table(data_titanic$edat,data_titanic$Supervivencia)
+tabla_SAT
+prop.table(tabla_SAT, margin = 1) 
+```
+
+Per a finalitzar, destaquem que la presència de passatgers majors de 20 anys era molt major que la gent més jove i que la taxa de supervivència en els menors de 20 anys és la major (45,81%)
+
+## 4.2 Comprovació de la normalitat i homogeneïtat de la variància.
+
+### Normalitat
+
+El primer que realitzarem serà comprovar la normalitat de les variables numèriques
+
+
+```{r}
+
+# Gràfics
+par(mfrow=c(1,3))
+hist(data_titanic$Age) # histograma de l'edat
+qqnorm(data_titanic$Age) # gràfic quantile
+qqline(data_titanic$Age)
+# Contrast de normalitat
+lillie.test(data_titanic$Age) #contrast
+```
+
+```{r}
+# Gràfics
+par(mfrow=c(1,3))
+hist(data_titanic$SibSp) # histograma de Sib
+qqnorm(data_titanic$SibSp) # gràfic quantile
+qqline(data_titanic$SibSp)
+# Contrast normalitat
+lillie.test(data_titanic$SibSp) #contrast
+```
+
+```{r}
+# Gràfics
+par(mfrow=c(1,3))
+hist(data_titanic$Parch) # histograma de Parch
+qqnorm(data_titanic$Parch) # gràfic quantile
+qqline(data_titanic$Parch)
+# Contrast normalitat
+lillie.test(data_titanic$Parch) #contrast
+```
+```{r}
+# Gràfics
+par(mfrow=c(1,3))
+hist(data_titanic$Fare) # histograma de Fare
+qqnorm(data_titanic$Fare) # gràfic quantile
+qqline(data_titanic$Fare)
+# Contrast normalitat
+lillie.test(data_titanic$Fare) #contrast
+```
+
+Si usem un nivell de significança de alpha = 0.05, podem veure que en tots els tests anteriors es rebutja la hipòtesi nul·la amb un nivell del confiança del 95%, ja que p_valor < 0.05 en tots els casos. Per tant, podem dir que les variables quantitatives d'aquest conjunt de dades (Age, SibSp, Parch i Fare) no segueixen una distribució normal. Tot i això veiem que la variable Age es troba a prop de la normalitat, per tant, com tenim una quantitat d'observacions prou gran podem assumir que aquesta variable segueix una distribució normal basant-nos en el teorema central del límit.
+
+### Homogeneïtat
+
+## 4.3 Aplicació de proves estadístiques per comparar els grups de dades
+
+### 4.3.1 Matriu de correlacions
+
+Aplicarem en primer lloc la matriu de correlacions entre les variables numèriques.
+
+```{r}
+# Creem la correlació de variables numèriques
+data_numeric = data_titanic[, sapply(data_titanic, is.numeric)]
+M = cor(data_numeric, use="pairwise.complete.obs")
+```
+
+```{r}
+# Printem la matriu de correlacions
+corrplot.mixed(M, lower = "number", upper="color", tl.pos = "d", tl.col = "black", tl.cex=0.85) 
+
+```
+
+
+### 4.3.2 Model de regresió logístic
+
+La regresió logística ens permetpredit el resultat d'una variable categòrica en base a les variables independients o predictores. En el nostre cas, generarem un model de regresió logística, i analitzarem els paràmetres del mateix, així com les variables que tenen un pes més gran en la seva predicció.
+
+Muntem el model
+
+```{r}
+# Model de regresió logística
+classifier = glm(Survived ~ Pclass + Age + SibSp + Parch + Fare, data = data_titanic, family = "binomial")
+summary(classifier)
+```
+
+Veiem que amb el model de regresió logarítmic, la variable PClass és la que té un valor PValue més petit, seguit de la Edat i el número de fills. Per tant, segons el model son les variables que tenen un pes més significatiu en la variable objectiu 'survived'
+
+### 4.3.3 Arbre de decisió
+
+Per a crear un arbre de decisió, utilitzarem la funció rpart()
+
+```{r}
+
+# Separem en train i test
+partition <- createDataPartition(y = data_titanic$Survived,
+                               p = 0.7, list = F)
+train_data <- data_titanic[partition, ]
+test_data <- data_titanic[-partition, ]
+
+# creem el model d'arbre de decisió
+fit <- rpart(Survived ~ Pclass + Sex + Age + SibSp + Parch + Fare + Embarked, data=data_titanic, method="class")
+rpart.plot(fit)
+```
+Com podem veure, les variables que s'han utilitzat per a construir el model son Sex, Age, PClass, SibSipb i Fare 
+
+Per últim, farem una predicció amb l'arbre que hem generat.
+
+```{r}
+
+set.seed(1) 
+prediction <- predict(fit, newdata = test_data, type = "class")
+confusionMatrix(prediction, as.factor(test_data$Survived), positive="1")
+
+```
+Veiem que la precisió del model d'arbre de decisió és del 84.27%.
+
+******
+## 5. Conclusions
+******
+
+En base a l'estudi realitzat, s'han trobat certs resultats que poden ser d'interes:
+
+- En primer lloc, mitjançant el model de regresió logístic hem vist que les variables categóriques que més influeixen a l'hora de determinar si el passatger va sobreviure o no son la classe que ocupava el passatger al vaixell i l'edat.
+
+- En segon lloc, mitjanánt el model d'arbres de decisió hem pogut veure que som capaços de determinar amb una precisió d'un 84.27% si el passatger sobreviu o no. El model utilitza el Sexe, la Classe i l'Edat com els factors més determinants. Per exemple, veiem que els varons de menys de 6.5 anys es van salvar en la seva gran majoria. 
+
+Encara que es podria fer un estudi molt més exhaustiu sobre les característiques dels supervivents, creiem que si que hem pogut contestar les preguntes que ens plantejavem a l'hora d'iniciar l'estudi.
+
+
+| Contribucions | Firma |
+|----------------|-------|
+| Investigació prèvia | AH, AM |
+| Redacció de respostes | AH, AM |
+| Desenvolupament codi | AH, AM |
+
+
+
+
+
+
+
+
+
+
+
+
+
