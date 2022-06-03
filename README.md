@@ -14,4 +14,5 @@ Fitxer pdf amb les respostes de la pràctica, generat a partir de l'arxiu aherna
 
 # Components del grup
 Aitor Hernández López
+
 Anna Mayoral Hernando
